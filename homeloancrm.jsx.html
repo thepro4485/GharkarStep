@@ -1,0 +1,796 @@
+import { useState, useEffect, useCallback } from "react";
+
+
+
+const LOAN_STAGES = [
+  {
+    id: "enquiry",
+    label: "Enquiry Received",
+    color: "#7F77DD",
+    bg: "#EEEDFE",
+    steps: [
+      "Ask for full name, contact number, email",
+      "Ask what type of loan they need (home purchase / balance transfer / top-up / construction)",
+      "Note down the property type (flat / independent / plot)",
+      "Ask for approximate loan amount required",
+      "Ask for approximate monthly income",
+      "Log this lead in the system immediately",
+      "Set a follow-up call within 24 hours",
+    ],
+    checklist: [
+      "Lead name logged",
+      "Contact number saved",
+      "Loan type noted",
+      "Income noted",
+      "Follow-up scheduled",
+    ],
+    nextStage: "document_collection",
+    docsRequired: [],
+    tip: "Do not quote any interest rate at this stage. Just collect basic info and build rapport.",
+  },
+  {
+    id: "document_collection",
+    label: "Document Collection",
+    color: "#185FA5",
+    bg: "#E6F1FB",
+    steps: [
+      "Send document checklist to client via WhatsApp/email",
+      "Collect KYC: Aadhaar, PAN card (front & back)",
+      "Collect income proof: last 3 months salary slips OR last 2 years ITR (for self-employed)",
+      "Collect bank statements: last 6 months",
+      "Collect property documents (if finalised): sale agreement / allotment letter",
+      "Collect existing loan statements (if any)",
+      "Verify all documents are clear, not expired, and readable",
+      "Upload all documents to the client folder",
+    ],
+    checklist: [
+      "Aadhaar received",
+      "PAN card received",
+      "Salary slips / ITR received",
+      "Bank statements received",
+      "Property documents received",
+      "Existing loan statements received",
+      "All documents uploaded to folder",
+    ],
+    nextStage: "cibil_check",
+    tip: "If the client delays sending docs, follow up every 2 days. Do not move forward without complete documents.",
+  },
+  {
+    id: "cibil_check",
+    label: "CIBIL & Eligibility Check",
+    color: "#0F6E56",
+    bg: "#E1F5EE",
+    steps: [
+      "Pull CIBIL score using client PAN number",
+      "Check if score is above 700 (ideal), 650-700 (manageable), below 650 (flag for boss)",
+      "Calculate loan eligibility: Net Monthly Salary × 60 (rough formula)",
+      "Check FOIR (Fixed Obligation to Income Ratio) — should be below 50%",
+      "Note any overdue EMIs or defaults in credit report",
+      "Identify best-suited banks based on score and income",
+      "If CIBIL is low — inform client, suggest remedies, do not proceed without boss approval",
+    ],
+    checklist: [
+      "CIBIL score pulled",
+      "Score category noted (Good / Average / Low)",
+      "Loan eligibility calculated",
+      "FOIR checked",
+      "Existing EMIs listed",
+      "Bank shortlist prepared",
+      "Boss informed if score below 650",
+    ],
+    nextStage: "bank_selection",
+    tip: "Never promise loan approval at this stage. Say 'we will try our best with the right bank.'",
+  },
+  {
+    id: "bank_selection",
+    label: "Bank Selection & File Submission",
+    color: "#BA7517",
+    bg: "#FAEEDA",
+    steps: [
+      "Prepare comparison of 2–3 banks: ROI, processing fee, tenure options",
+      "Present options to client and get their preferred bank in writing (WhatsApp message counts)",
+      "Fill in the bank's loan application form accurately",
+      "Attach all required documents as per that bank's checklist",
+      "Submit physical file at bank branch OR upload on bank portal",
+      "Collect acknowledgment receipt or application reference number",
+      "Log the bank name, branch, and application number in the system",
+    ],
+    checklist: [
+      "Bank comparison shared with client",
+      "Client confirmed preferred bank",
+      "Application form filled",
+      "All documents attached",
+      "File submitted to bank",
+      "Application number received",
+      "Application number logged in system",
+    ],
+    nextStage: "bank_processing",
+    tip: "Always take written consent from client before submitting to any bank. Avoid submitting to multiple banks at once — it hurts CIBIL.",
+  },
+  {
+    id: "bank_processing",
+    label: "Bank Processing & Follow-Up",
+    color: "#D85A30",
+    bg: "#FAECE7",
+    steps: [
+      "Call bank RM or relationship manager every 2 days for update",
+      "If bank asks for additional documents (PDC), collect and submit within 24 hours",
+      "Inform client about status every 3–4 days",
+      "If bank sends a field verification team to client's home/office — inform client in advance",
+      "Track legal and technical report status from bank",
+      "Escalate to boss immediately if bank delays beyond 15 working days",
+    ],
+    checklist: [
+      "Bank RM contact saved",
+      "Status called in last 2 days",
+      "Client updated this week",
+      "Additional documents submitted (if requested)",
+      "Field verification done",
+      "Legal report status checked",
+      "Technical report status checked",
+    ],
+    nextStage: "sanction",
+    tip: "Be persistent with the bank but always be polite. Build a good relationship with bank RMs — it helps all future cases too.",
+  },
+  {
+    id: "sanction",
+    label: "Loan Sanction",
+    color: "#3B6D11",
+    bg: "#EAF3DE",
+    steps: [
+      "Receive sanction letter from bank",
+      "Read sanction letter carefully: amount, ROI, tenure, EMI, conditions",
+      "Explain the sanction letter to the client in simple language",
+      "Check if sanction amount is what client needed — if shortfall, discuss options",
+      "Collect client's acceptance of sanction letter (signed copy or written confirmation)",
+      "Inform client about next steps: legal, technical, and disbursement process",
+      "Collect your processing fee from client at this stage",
+    ],
+    checklist: [
+      "Sanction letter received",
+      "Sanction amount verified",
+      "ROI and EMI confirmed",
+      "Sanction explained to client",
+      "Client signed acceptance",
+      "Processing fee collected",
+    ],
+    nextStage: "legal_technical",
+    tip: "Collect your fee now. Do not wait till disbursement — deals can fall through at any stage.",
+  },
+  {
+    id: "legal_technical",
+    label: "Legal & Technical Clearance",
+    color: "#993556",
+    bg: "#FBEAF0",
+    steps: [
+      "Bank's empanelled lawyer will do legal check on property documents",
+      "Bank's technical team will visit and evaluate the property",
+      "If any issue is raised, coordinate between client, bank, and builder/seller",
+      "If legal report is clear, inform client",
+      "If technical valuation is low — discuss with bank for revision or ask client to pay difference",
+      "Ensure all original documents are submitted to bank if required",
+    ],
+    checklist: [
+      "Legal report initiated",
+      "Technical visit done",
+      "Legal report cleared",
+      "Technical report cleared",
+      "Original documents submitted to bank",
+    ],
+    nextStage: "disbursement",
+    tip: "Never skip this stage. If legal or technical fails, the loan will not disburse. Check property documents for any pending disputes before submitting.",
+  },
+  {
+    id: "disbursement",
+    label: "Disbursement",
+    color: "#533AB4",
+    bg: "#EEEDFE",
+    steps: [
+      "Confirm disbursement date with bank RM",
+      "Inform client to be available for signing disbursement documents",
+      "Client signs loan agreement, ECS/NACH mandate, and other documents at bank",
+      "Bank transfers amount to seller/builder directly (not to client)",
+      "Collect disbursement letter from bank",
+      "Confirm money received by seller/builder",
+      "Update the system: mark case as Disbursed",
+      "Ask client for a Google review / reference",
+    ],
+    checklist: [
+      "Disbursement date confirmed",
+      "Client informed to visit bank",
+      "All documents signed",
+      "Amount transferred to seller",
+      "Disbursement letter received",
+      "Case marked as Disbursed in system",
+      "Review / reference requested from client",
+    ],
+    nextStage: "closed",
+    tip: "Congratulate the client! This is the finish line. Ask for referrals while the client is happiest.",
+  },
+  {
+    id: "closed",
+    label: "Case Closed",
+    color: "#5F5E5A",
+    bg: "#F1EFE8",
+    steps: [
+      "File all documents in physical folder (bank copy + our copy)",
+      "Update final status in system",
+      "Set a 6-month follow-up reminder for top-up or balance transfer opportunity",
+    ],
+    checklist: ["Documents filed", "System updated", "6-month follow-up set"],
+    nextStage: null,
+    tip: "A closed case is a future referral. Stay in touch with clients even after disbursement.",
+  },
+];
+
+const STORAGE_KEY = "homeLoanCRM_v3";
+
+function loadData() {
+  try {
+    const d = localStorage.getItem(STORAGE_KEY);
+    return d ? JSON.parse(d) : { leads: [], dailyLog: {} };
+  } catch {
+    return { leads: [], dailyLog: {} };
+  }
+}
+
+function saveData(data) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch {}
+}
+
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function generateId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+const VIEWS = ["Dashboard", "Leads", "Add Lead", "Today's Tasks", "Follow-Ups", "Daily Log"];
+
+export default function App() {
+  const [data, setData] = useState(() => loadData());
+  const [view, setView] = useState("Dashboard");
+  const [selectedLead, setSelectedLead] = useState(null);
+  const [showStageGuide, setShowStageGuide] = useState(null);
+
+  const persist = useCallback((newData) => {
+    setData(newData);
+    saveData(newData);
+  }, []);
+
+  useEffect(() => {
+    saveData(data);
+  }, [data]);
+
+  const leads = data.leads || [];
+
+  function addLead(lead) {
+    const newLead = {
+      ...lead,
+      id: generateId(),
+      stage: "enquiry",
+      createdAt: today(),
+      checklist: {},
+      notes: [],
+      followUp: "",
+      stageHistory: [{ stage: "enquiry", date: today() }],
+    };
+    persist({ ...data, leads: [newLead, ...leads] });
+    setView("Leads");
+  }
+
+  function updateLead(id, updates) {
+    persist({
+      ...data,
+      leads: leads.map((l) => (l.id === id ? { ...l, ...updates } : l)),
+    });
+  }
+
+  function advanceStage(id) {
+    const lead = leads.find((l) => l.id === id);
+    const stage = LOAN_STAGES.find((s) => s.id === lead.stage);
+    if (!stage || !stage.nextStage) return;
+    const updates = {
+      stage: stage.nextStage,
+      checklist: {},
+      stageHistory: [...(lead.stageHistory || []), { stage: stage.nextStage, date: today() }],
+    };
+    updateLead(id, updates);
+  }
+
+  function toggleCheck(leadId, item) {
+    const lead = leads.find((l) => l.id === leadId);
+    const checklist = { ...(lead.checklist || {}) };
+    checklist[item] = !checklist[item];
+    updateLead(leadId, { checklist });
+  }
+
+  function addNote(leadId, note) {
+    const lead = leads.find((l) => l.id === leadId);
+    const notes = [...(lead.notes || []), { text: note, date: today(), time: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) }];
+    updateLead(leadId, { notes });
+  }
+
+  function saveDailyLog(entry) {
+    const log = { ...(data.dailyLog || {}) };
+    log[today()] = entry;
+    persist({ ...data, dailyLog: log });
+  }
+
+  const todayFollowUps = leads.filter((l) => l.followUp === today() && l.stage !== "closed");
+  const overdueFollowUps = leads.filter((l) => l.followUp && l.followUp < today() && l.stage !== "closed");
+  const activeLeads = leads.filter((l) => l.stage !== "closed");
+
+  if (selectedLead) {
+    const lead = leads.find((l) => l.id === selectedLead);
+    if (!lead) { setSelectedLead(null); return null; }
+    return <LeadDetail lead={lead} onBack={() => setSelectedLead(null)} onUpdateLead={updateLead} onAdvanceStage={advanceStage} onToggleCheck={toggleCheck} onAddNote={addNote} />;
+  }
+
+  if (showStageGuide !== null) {
+    const stage = LOAN_STAGES[showStageGuide];
+    return <StageGuide stage={stage} index={showStageGuide} total={LOAN_STAGES.length} onBack={() => setShowStageGuide(null)} onNext={showStageGuide < LOAN_STAGES.length - 1 ? () => setShowStageGuide(showStageGuide + 1) : null} onPrev={showStageGuide > 0 ? () => setShowStageGuide(showStageGuide - 1) : null} />;
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: "var(--color-background-tertiary)", fontFamily: "var(--font-sans)" }}>
+      <nav style={{ background: "var(--color-background-primary)", borderBottom: "0.5px solid var(--color-border-tertiary)", padding: "0 1rem", display: "flex", alignItems: "center", gap: "4px", overflowX: "auto", position: "sticky", top: 0, zIndex: 10 }}>
+        <div style={{ fontWeight: 500, fontSize: 15, color: "var(--color-text-primary)", marginRight: 12, whiteSpace: "nowrap", padding: "14px 0" }}>HomeLoan CRM</div>
+        {VIEWS.map((v) => (
+          <button key={v} onClick={() => setView(v)} style={{ padding: "14px 12px", fontSize: 13, fontWeight: view === v ? 500 : 400, color: view === v ? "#7F77DD" : "var(--color-text-secondary)", background: "none", border: "none", cursor: "pointer", borderBottom: view === v ? "2px solid #7F77DD" : "2px solid transparent", whiteSpace: "nowrap" }}>{v}</button>
+        ))}
+      </nav>
+
+      <div style={{ maxWidth: 900, margin: "0 auto", padding: "1.5rem 1rem" }}>
+        {view === "Dashboard" && <Dashboard leads={leads} todayFollowUps={todayFollowUps} overdueFollowUps={overdueFollowUps} activeLeads={activeLeads} onSelectLead={(id) => setSelectedLead(id)} onShowStageGuide={(i) => setShowStageGuide(i)} dailyLog={data.dailyLog} />}
+        {view === "Leads" && <LeadsList leads={leads} onSelectLead={(id) => setSelectedLead(id)} />}
+        {view === "Add Lead" && <AddLeadForm onAdd={addLead} />}
+        {view === "Today's Tasks" && <TodayTasks leads={leads} todayFollowUps={todayFollowUps} overdueFollowUps={overdueFollowUps} onSelectLead={(id) => setSelectedLead(id)} />}
+        {view === "Follow-Ups" && <FollowUps leads={leads} onSelectLead={(id) => setSelectedLead(id)} onUpdateLead={updateLead} />}
+        {view === "Daily Log" && <DailyLogView dailyLog={data.dailyLog} leads={leads} onSave={saveDailyLog} />}
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({ leads, todayFollowUps, overdueFollowUps, activeLeads, onSelectLead, onShowStageGuide, dailyLog }) {
+  const stageCount = {};
+  LOAN_STAGES.forEach((s) => (stageCount[s.id] = leads.filter((l) => l.stage === s.id).length));
+  const closed = leads.filter((l) => l.stage === "closed").length;
+  const disbursed = (dailyLog && Object.values(dailyLog).length) || 0;
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 20, fontWeight: 500, marginBottom: 6, color: "var(--color-text-primary)" }}>Good morning! Here's your day at a glance.</h2>
+      <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 20 }}>{new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</p>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 24 }}>
+        {[
+          { label: "Total Leads", val: leads.length, color: "#7F77DD" },
+          { label: "Active Cases", val: activeLeads.length, color: "#185FA5" },
+          { label: "Today's Calls", val: todayFollowUps.length, color: "#0F6E56" },
+          { label: "Overdue", val: overdueFollowUps.length, color: overdueFollowUps.length > 0 ? "#D85A30" : "#5F5E5A" },
+          { label: "Closed", val: closed, color: "#3B6D11" },
+        ].map((m) => (
+          <div key={m.label} style={{ background: "var(--color-background-secondary)", borderRadius: 10, padding: "14px 16px" }}>
+            <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 4 }}>{m.label}</div>
+            <div style={{ fontSize: 26, fontWeight: 500, color: m.color }}>{m.val}</div>
+          </div>
+        ))}
+      </div>
+
+      {overdueFollowUps.length > 0 && (
+        <div style={{ background: "#FAECE7", border: "0.5px solid #F0997B", borderRadius: 10, padding: "12px 16px", marginBottom: 20 }}>
+          <div style={{ fontWeight: 500, color: "#993C1D", fontSize: 14, marginBottom: 8 }}>Overdue follow-ups — call these now</div>
+          {overdueFollowUps.map((l) => (
+            <div key={l.id} onClick={() => onSelectLead(l.id)} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderTop: "0.5px solid #F0997B", cursor: "pointer", color: "#993C1D", fontSize: 13 }}>
+              <span>{l.name}</span><span style={{ fontSize: 11 }}>Due: {l.followUp} · {LOAN_STAGES.find((s) => s.id === l.stage)?.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {todayFollowUps.length > 0 && (
+        <div style={{ background: "#E1F5EE", border: "0.5px solid #5DCAA5", borderRadius: 10, padding: "12px 16px", marginBottom: 20 }}>
+          <div style={{ fontWeight: 500, color: "#085041", fontSize: 14, marginBottom: 8 }}>Today's calls</div>
+          {todayFollowUps.map((l) => (
+            <div key={l.id} onClick={() => onSelectLead(l.id)} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderTop: "0.5px solid #5DCAA5", cursor: "pointer", color: "#085041", fontSize: 13 }}>
+              <span>{l.name} — {l.phone}</span><span style={{ fontSize: 11 }}>{LOAN_STAGES.find((s) => s.id === l.stage)?.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 12, padding: "16px", marginBottom: 20 }}>
+        <div style={{ fontWeight: 500, fontSize: 15, marginBottom: 14, color: "var(--color-text-primary)" }}>Pipeline by stage</div>
+        {LOAN_STAGES.filter((s) => s.id !== "closed").map((s, i) => {
+          const count = stageCount[s.id] || 0;
+          const max = Math.max(...Object.values(stageCount), 1);
+          return (
+            <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <div style={{ fontSize: 12, width: 160, color: "var(--color-text-secondary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.label}</div>
+              <div style={{ flex: 1, background: "var(--color-background-secondary)", borderRadius: 4, height: 14, overflow: "hidden" }}>
+                <div style={{ width: `${(count / max) * 100}%`, height: "100%", background: s.color, borderRadius: 4, minWidth: count > 0 ? 4 : 0 }} />
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 500, width: 24, textAlign: "right", color: s.color }}>{count}</div>
+              <button onClick={() => onShowStageGuide(i)} style={{ fontSize: 11, padding: "2px 8px", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 6, background: "none", cursor: "pointer", color: "var(--color-text-secondary)" }}>Guide</button>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 12, padding: "16px" }}>
+        <div style={{ fontWeight: 500, fontSize: 15, marginBottom: 10, color: "var(--color-text-primary)" }}>Stage-by-stage process guide</div>
+        <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 12 }}>Click any stage to read the full steps, checklist, and tips.</p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
+          {LOAN_STAGES.map((s, i) => (
+            <button key={s.id} onClick={() => onShowStageGuide(i)} style={{ background: s.bg, border: `0.5px solid ${s.color}40`, borderRadius: 8, padding: "10px 12px", cursor: "pointer", textAlign: "left" }}>
+              <div style={{ fontSize: 11, color: s.color, marginBottom: 2 }}>Step {i + 1}</div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: s.color }}>{s.label}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LeadsList({ leads, onSelectLead }) {
+  const [search, setSearch] = useState("");
+  const [filterStage, setFilterStage] = useState("all");
+  const filtered = leads.filter((l) => {
+    const matchSearch = l.name.toLowerCase().includes(search.toLowerCase()) || (l.phone || "").includes(search);
+    const matchStage = filterStage === "all" || l.stage === filterStage;
+    return matchSearch && matchStage;
+  });
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 18, fontWeight: 500, marginBottom: 16, color: "var(--color-text-primary)" }}>All leads</h2>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or phone..." style={{ flex: 1, minWidth: 180 }} />
+        <select value={filterStage} onChange={(e) => setFilterStage(e.target.value)} style={{ minWidth: 160 }}>
+          <option value="all">All stages</option>
+          {LOAN_STAGES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+        </select>
+      </div>
+      {filtered.length === 0 && <p style={{ color: "var(--color-text-secondary)", fontSize: 14 }}>No leads found.</p>}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {filtered.map((l) => {
+          const stage = LOAN_STAGES.find((s) => s.id === l.stage);
+          return (
+            <div key={l.id} onClick={() => onSelectLead(l.id)} style={{ background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderLeft: `3px solid ${stage?.color}`, borderRadius: 10, padding: "12px 16px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+              <div>
+                <div style={{ fontWeight: 500, fontSize: 15, color: "var(--color-text-primary)" }}>{l.name}</div>
+                <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 2 }}>{l.phone} · {l.loanType} · ₹{l.loanAmount ? Number(l.loanAmount).toLocaleString("en-IN") : "—"}</div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 11, background: stage?.bg, color: stage?.color, padding: "3px 10px", borderRadius: 20, fontWeight: 500 }}>{stage?.label}</div>
+                {l.followUp && <div style={{ fontSize: 11, color: l.followUp < today() ? "#D85A30" : "var(--color-text-secondary)", marginTop: 4 }}>Follow-up: {l.followUp}</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AddLeadForm({ onAdd }) {
+  const [form, setForm] = useState({ name: "", phone: "", email: "", loanType: "Home Purchase", loanAmount: "", income: "", notes: "" });
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 18, fontWeight: 500, marginBottom: 16, color: "var(--color-text-primary)" }}>Add new lead</h2>
+      <div style={{ background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 12, padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div><label style={{ fontSize: 12, color: "var(--color-text-secondary)", display: "block", marginBottom: 4 }}>Full Name *</label><input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Client full name" /></div>
+          <div><label style={{ fontSize: 12, color: "var(--color-text-secondary)", display: "block", marginBottom: 4 }}>Phone *</label><input value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="10-digit number" /></div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div><label style={{ fontSize: 12, color: "var(--color-text-secondary)", display: "block", marginBottom: 4 }}>Email</label><input value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="email@example.com" /></div>
+          <div><label style={{ fontSize: 12, color: "var(--color-text-secondary)", display: "block", marginBottom: 4 }}>Loan Type</label>
+            <select value={form.loanType} onChange={(e) => set("loanType", e.target.value)}>
+              {["Home Purchase", "Balance Transfer", "Top-Up", "Construction Loan", "Plot + Construction", "LAP"].map((t) => <option key={t}>{t}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div><label style={{ fontSize: 12, color: "var(--color-text-secondary)", display: "block", marginBottom: 4 }}>Loan Amount (₹)</label><input type="number" value={form.loanAmount} onChange={(e) => set("loanAmount", e.target.value)} placeholder="e.g. 5000000" /></div>
+          <div><label style={{ fontSize: 12, color: "var(--color-text-secondary)", display: "block", marginBottom: 4 }}>Monthly Income (₹)</label><input type="number" value={form.income} onChange={(e) => set("income", e.target.value)} placeholder="e.g. 80000" /></div>
+        </div>
+        <div><label style={{ fontSize: 12, color: "var(--color-text-secondary)", display: "block", marginBottom: 4 }}>Initial Notes</label><textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Any extra info from first call..." rows={3} style={{ resize: "vertical" }} /></div>
+        <button onClick={() => { if (!form.name || !form.phone) return alert("Name and phone are required."); onAdd(form); setForm({ name: "", phone: "", email: "", loanType: "Home Purchase", loanAmount: "", income: "", notes: "" }); }} style={{ alignSelf: "flex-start", padding: "10px 24px", background: "#7F77DD", color: "#fff", border: "none", borderRadius: 8, fontWeight: 500, cursor: "pointer", fontSize: 14 }}>Add Lead</button>
+      </div>
+    </div>
+  );
+}
+
+function TodayTasks({ leads, todayFollowUps, overdueFollowUps, onSelectLead }) {
+  const allTasks = [...overdueFollowUps.map((l) => ({ ...l, overdue: true })), ...todayFollowUps];
+  const inProgress = leads.filter((l) => l.stage !== "closed" && !todayFollowUps.includes(l) && !overdueFollowUps.includes(l));
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 18, fontWeight: 500, marginBottom: 4, color: "var(--color-text-primary)" }}>Today's tasks</h2>
+      <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 20 }}>{new Date().toLocaleDateString("en-IN", { weekday: "long", month: "long", day: "numeric" })}</p>
+
+      {allTasks.length === 0 && <div style={{ background: "#EAF3DE", borderRadius: 10, padding: 16, marginBottom: 20, color: "#3B6D11", fontSize: 14 }}>No scheduled follow-ups today. Update follow-up dates for your active leads.</div>}
+
+      {allTasks.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontWeight: 500, fontSize: 14, marginBottom: 10, color: "var(--color-text-primary)" }}>Calls to make today ({allTasks.length})</div>
+          {allTasks.map((l) => {
+            const stage = LOAN_STAGES.find((s) => s.id === l.stage);
+            return (
+              <div key={l.id} onClick={() => onSelectLead(l.id)} style={{ background: "var(--color-background-primary)", border: `0.5px solid ${l.overdue ? "#F0997B" : "var(--color-border-tertiary)"}`, borderLeft: `3px solid ${l.overdue ? "#D85A30" : "#0F6E56"}`, borderRadius: 10, padding: "12px 16px", cursor: "pointer", marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    {l.overdue && <div style={{ fontSize: 11, color: "#D85A30", fontWeight: 500, marginBottom: 2 }}>OVERDUE — was due {l.followUp}</div>}
+                    <div style={{ fontWeight: 500, fontSize: 15, color: "var(--color-text-primary)" }}>{l.name}</div>
+                    <div style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>{l.phone} · {l.loanType}</div>
+                  </div>
+                  <div style={{ fontSize: 11, background: stage?.bg, color: stage?.color, padding: "3px 10px", borderRadius: 20, fontWeight: 500, whiteSpace: "nowrap" }}>{stage?.label}</div>
+                </div>
+                <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 8 }}>
+                  What to discuss: {stage?.steps?.[0]}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div style={{ fontWeight: 500, fontSize: 14, marginBottom: 10, color: "var(--color-text-primary)" }}>All active cases ({inProgress.length})</div>
+      {inProgress.map((l) => {
+        const stage = LOAN_STAGES.find((s) => s.id === l.stage);
+        return (
+          <div key={l.id} onClick={() => onSelectLead(l.id)} style={{ background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderLeft: `3px solid ${stage?.color}`, borderRadius: 10, padding: "10px 16px", cursor: "pointer", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div style={{ fontWeight: 500, fontSize: 14, color: "var(--color-text-primary)" }}>{l.name}</div>
+              <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>{stage?.label}</div>
+            </div>
+            {l.followUp ? <div style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>Next call: {l.followUp}</div> : <div style={{ fontSize: 11, color: "#D85A30" }}>No follow-up set</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function FollowUps({ leads, onSelectLead, onUpdateLead }) {
+  const sections = [
+    { label: "Overdue", leads: leads.filter((l) => l.followUp && l.followUp < today() && l.stage !== "closed"), color: "#D85A30" },
+    { label: "Today", leads: leads.filter((l) => l.followUp === today() && l.stage !== "closed"), color: "#0F6E56" },
+    { label: "This week", leads: leads.filter((l) => { if (!l.followUp || l.followUp <= today() || l.stage === "closed") return false; const d = new Date(l.followUp); const t = new Date(); t.setDate(t.getDate() + 7); return d <= t; }), color: "#185FA5" },
+    { label: "No follow-up set", leads: leads.filter((l) => !l.followUp && l.stage !== "closed"), color: "#5F5E5A" },
+  ];
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 18, fontWeight: 500, marginBottom: 16, color: "var(--color-text-primary)" }}>Follow-up calendar</h2>
+      {sections.map((s) => s.leads.length > 0 && (
+        <div key={s.label} style={{ marginBottom: 24 }}>
+          <div style={{ fontWeight: 500, fontSize: 14, color: s.color, marginBottom: 8 }}>{s.label} ({s.leads.length})</div>
+          {s.leads.map((l) => {
+            const stage = LOAN_STAGES.find((st) => st.id === l.stage);
+            return (
+              <div key={l.id} style={{ background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 10, padding: "10px 14px", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                <div onClick={() => onSelectLead(l.id)} style={{ cursor: "pointer", flex: 1 }}>
+                  <div style={{ fontWeight: 500, fontSize: 14, color: "var(--color-text-primary)" }}>{l.name} <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>· {l.phone}</span></div>
+                  <div style={{ fontSize: 12, color: stage?.color }}>{stage?.label}</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <input type="date" defaultValue={l.followUp || ""} onChange={(e) => onUpdateLead(l.id, { followUp: e.target.value })} style={{ fontSize: 12, padding: "4px 8px" }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DailyLogView({ dailyLog, leads, onSave }) {
+  const [entry, setEntry] = useState(() => (dailyLog || {})[today()] || "");
+  const dates = Object.keys(dailyLog || {}).sort().reverse();
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 18, fontWeight: 500, marginBottom: 4, color: "var(--color-text-primary)" }}>Daily log</h2>
+      <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 16 }}>Write what you did today. This helps you and your boss review progress. Be specific: "Called Rahul Sharma — CIBIL checked, 710 score. Bank shortlist sent."</p>
+      <div style={{ background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 12, padding: 16, marginBottom: 20 }}>
+        <div style={{ fontWeight: 500, fontSize: 14, marginBottom: 8, color: "var(--color-text-primary)" }}>Today — {new Date().toLocaleDateString("en-IN", { weekday: "long", month: "long", day: "numeric" })}</div>
+        <textarea value={entry} onChange={(e) => setEntry(e.target.value)} placeholder={"Example:\n• Called Amit Verma — docs still pending, will send by tomorrow\n• Submitted HDFC file for Priya Mehta — application no. 123456\n• CIBIL checked for new lead Suresh Kumar — score 720, eligible\n• Follow up with SBI branch for Rajesh Singh's sanction — RM said 2 more days"} rows={8} style={{ width: "100%", resize: "vertical", fontFamily: "var(--font-sans)", fontSize: 13, boxSizing: "border-box" }} />
+        <button onClick={() => { onSave(entry); alert("Log saved!"); }} style={{ marginTop: 10, padding: "8px 20px", background: "#7F77DD", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 500 }}>Save today's log</button>
+      </div>
+
+      {dates.length > 0 && (
+        <div>
+          <div style={{ fontWeight: 500, fontSize: 14, marginBottom: 10, color: "var(--color-text-primary)" }}>Past logs</div>
+          {dates.filter((d) => d !== today()).map((d) => (
+            <div key={d} style={{ background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 10, padding: "12px 16px", marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-secondary)", marginBottom: 6 }}>{new Date(d).toLocaleDateString("en-IN", { weekday: "short", year: "numeric", month: "short", day: "numeric" })}</div>
+              <div style={{ fontSize: 13, color: "var(--color-text-primary)", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{dailyLog[d]}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LeadDetail({ lead, onBack, onUpdateLead, onAdvanceStage, onToggleCheck, onAddNote }) {
+  const stage = LOAN_STAGES.find((s) => s.id === lead.stage);
+  const stageIndex = LOAN_STAGES.findIndex((s) => s.id === lead.stage);
+  const [tab, setTab] = useState("progress");
+  const [noteText, setNoteText] = useState("");
+  const [followUpDate, setFollowUpDate] = useState(lead.followUp || "");
+
+  const checkedCount = stage?.checklist?.filter((item) => lead.checklist?.[item]).length || 0;
+  const totalCheck = stage?.checklist?.length || 0;
+  const allChecked = checkedCount === totalCheck && totalCheck > 0;
+
+  return (
+    <div>
+      <button onClick={onBack} style={{ fontSize: 13, color: "var(--color-text-secondary)", background: "none", border: "none", cursor: "pointer", marginBottom: 12, padding: 0 }}>← Back</button>
+      <div style={{ background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 12, padding: "16px 20px", marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+          <div>
+            <h2 style={{ fontSize: 20, fontWeight: 500, margin: 0, color: "var(--color-text-primary)" }}>{lead.name}</h2>
+            <div style={{ fontSize: 13, color: "var(--color-text-secondary)", marginTop: 2 }}>{lead.phone} {lead.email && `· ${lead.email}`}</div>
+            <div style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>{lead.loanType} · ₹{lead.loanAmount ? Number(lead.loanAmount).toLocaleString("en-IN") : "—"} · Income: ₹{lead.income ? Number(lead.income).toLocaleString("en-IN") : "—"}/mo</div>
+          </div>
+          <div style={{ fontSize: 12, background: stage?.bg, color: stage?.color, padding: "5px 14px", borderRadius: 20, fontWeight: 500, alignSelf: "flex-start" }}>{stage?.label}</div>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginTop: 14, alignItems: "center", flexWrap: "wrap" }}>
+          <label style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Follow-up date:</label>
+          <input type="date" value={followUpDate} onChange={(e) => { setFollowUpDate(e.target.value); onUpdateLead(lead.id, { followUp: e.target.value }); }} style={{ fontSize: 13, padding: "4px 8px" }} />
+          {lead.followUp && lead.followUp < today() && <span style={{ fontSize: 11, color: "#D85A30", fontWeight: 500 }}>OVERDUE</span>}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 4, marginBottom: 16, borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
+        {["progress", "checklist", "notes", "history"].map((t) => (
+          <button key={t} onClick={() => setTab(t)} style={{ padding: "10px 14px", fontSize: 13, fontWeight: tab === t ? 500 : 400, color: tab === t ? stage?.color : "var(--color-text-secondary)", background: "none", border: "none", cursor: "pointer", borderBottom: tab === t ? `2px solid ${stage?.color}` : "2px solid transparent", textTransform: "capitalize" }}>{t}</button>
+        ))}
+      </div>
+
+      {tab === "progress" && (
+        <div>
+          <div style={{ background: stage?.bg, border: `0.5px solid ${stage?.color}40`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
+            <div style={{ fontWeight: 500, fontSize: 15, color: stage?.color, marginBottom: 4 }}>Stage {stageIndex + 1} of {LOAN_STAGES.length}: {stage?.label}</div>
+            {stage?.tip && <div style={{ fontSize: 13, color: stage?.color, opacity: 0.85, fontStyle: "italic", marginBottom: 12 }}>Tip: {stage.tip}</div>}
+            <div style={{ fontWeight: 500, fontSize: 13, color: stage?.color, marginBottom: 8 }}>Steps to follow:</div>
+            {stage?.steps?.map((step, i) => (
+              <div key={i} style={{ display: "flex", gap: 10, marginBottom: 6 }}>
+                <div style={{ minWidth: 22, height: 22, borderRadius: "50%", background: stage?.color, color: "#fff", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 500 }}>{i + 1}</div>
+                <div style={{ fontSize: 13, color: stage?.color, lineHeight: 1.6, paddingTop: 2 }}>{step}</div>
+              </div>
+            ))}
+          </div>
+          {stage?.nextStage && (
+            <div style={{ background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 12, padding: 16 }}>
+              <div style={{ fontWeight: 500, fontSize: 14, marginBottom: 8, color: "var(--color-text-primary)" }}>Ready to advance?</div>
+              <div style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 12 }}>Complete the checklist first ({checkedCount}/{totalCheck} done). Once all items are checked, you can move this case to the next stage.</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+                <div style={{ flex: 1, background: "var(--color-background-secondary)", borderRadius: 4, height: 8, overflow: "hidden" }}>
+                  <div style={{ width: `${totalCheck > 0 ? (checkedCount / totalCheck) * 100 : 0}%`, height: "100%", background: stage?.color }} />
+                </div>
+                <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>{checkedCount}/{totalCheck}</div>
+              </div>
+              <button onClick={() => { if (!allChecked && !window.confirm("Checklist not complete. Advance anyway?")) return; onAdvanceStage(lead.id); }} style={{ padding: "10px 20px", background: allChecked ? stage?.color : "var(--color-background-secondary)", color: allChecked ? "#fff" : "var(--color-text-secondary)", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 500, fontSize: 14 }}>
+                Move to: {LOAN_STAGES.find((s) => s.id === stage.nextStage)?.label} →
+              </button>
+            </div>
+          )}
+          {!stage?.nextStage && <div style={{ background: "#EAF3DE", borderRadius: 12, padding: 16, color: "#3B6D11", fontSize: 14, fontWeight: 500 }}>Case closed. Great work!</div>}
+        </div>
+      )}
+
+      {tab === "checklist" && (
+        <div style={{ background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 12, padding: 16 }}>
+          <div style={{ fontWeight: 500, fontSize: 15, marginBottom: 12, color: "var(--color-text-primary)" }}>Checklist for {stage?.label}</div>
+          {stage?.checklist?.map((item) => {
+            const checked = !!(lead.checklist?.[item]);
+            return (
+              <div key={item} onClick={() => onToggleCheck(lead.id, item)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "0.5px solid var(--color-border-tertiary)", cursor: "pointer" }}>
+                <div style={{ width: 20, height: 20, borderRadius: 4, border: `1.5px solid ${checked ? stage?.color : "var(--color-border-secondary)"}`, background: checked ? stage?.color : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {checked && <svg width="11" height="9" viewBox="0 0 11 9"><path d="M1 4l3 3 6-6" stroke="#fff" strokeWidth="1.8" fill="none" strokeLinecap="round" /></svg>}
+                </div>
+                <span style={{ fontSize: 14, color: checked ? "var(--color-text-secondary)" : "var(--color-text-primary)", textDecoration: checked ? "line-through" : "none" }}>{item}</span>
+              </div>
+            );
+          })}
+          <div style={{ marginTop: 12, fontSize: 13, color: "var(--color-text-secondary)" }}>{checkedCount} of {totalCheck} completed</div>
+        </div>
+      )}
+
+      {tab === "notes" && (
+        <div>
+          <div style={{ background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 12, padding: 16, marginBottom: 16 }}>
+            <textarea value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Add a note: what happened in last call, what was discussed, what client said..." rows={3} style={{ width: "100%", resize: "vertical", fontFamily: "var(--font-sans)", fontSize: 13, boxSizing: "border-box" }} />
+            <button onClick={() => { if (!noteText.trim()) return; onAddNote(lead.id, noteText.trim()); setNoteText(""); }} style={{ marginTop: 8, padding: "8px 18px", background: stage?.color, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 500 }}>Add Note</button>
+          </div>
+          {(lead.notes || []).slice().reverse().map((n, i) => (
+            <div key={i} style={{ background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 10, padding: "10px 14px", marginBottom: 8 }}>
+              <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginBottom: 4 }}>{n.date} at {n.time}</div>
+              <div style={{ fontSize: 13, color: "var(--color-text-primary)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{n.text}</div>
+            </div>
+          ))}
+          {(lead.notes || []).length === 0 && <p style={{ color: "var(--color-text-secondary)", fontSize: 13 }}>No notes yet. Add notes after every call.</p>}
+        </div>
+      )}
+
+      {tab === "history" && (
+        <div style={{ background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 12, padding: 16 }}>
+          <div style={{ fontWeight: 500, fontSize: 15, marginBottom: 16, color: "var(--color-text-primary)" }}>Stage history</div>
+          <div style={{ position: "relative" }}>
+            {(lead.stageHistory || []).map((h, i) => {
+              const s = LOAN_STAGES.find((st) => st.id === h.stage);
+              return (
+                <div key={i} style={{ display: "flex", gap: 14, marginBottom: 16 }}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                    <div style={{ width: 12, height: 12, borderRadius: "50%", background: s?.color || "#888", flexShrink: 0, marginTop: 3 }} />
+                    {i < (lead.stageHistory || []).length - 1 && <div style={{ width: 2, flex: 1, background: "var(--color-border-tertiary)", marginTop: 4 }} />}
+                  </div>
+                  <div style={{ paddingBottom: 8 }}>
+                    <div style={{ fontSize: 14, fontWeight: 500, color: s?.color || "var(--color-text-primary)" }}>{s?.label}</div>
+                    <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>{new Date(h.date).toLocaleDateString("en-IN", { year: "numeric", month: "short", day: "numeric" })}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ borderTop: "0.5px solid var(--color-border-tertiary)", paddingTop: 12, marginTop: 4 }}>
+            <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Lead created: {new Date(lead.createdAt).toLocaleDateString("en-IN", { year: "numeric", month: "short", day: "numeric" })}</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StageGuide({ stage, index, total, onBack, onNext, onPrev }) {
+  return (
+    <div>
+      <button onClick={onBack} style={{ fontSize: 13, color: "var(--color-text-secondary)", background: "none", border: "none", cursor: "pointer", marginBottom: 12, padding: 0 }}>← Back to dashboard</button>
+      <div style={{ background: stage.bg, border: `0.5px solid ${stage.color}40`, borderRadius: 14, padding: 20, marginBottom: 16 }}>
+        <div style={{ fontSize: 12, color: stage.color, marginBottom: 4 }}>Step {index + 1} of {total}</div>
+        <h2 style={{ fontSize: 20, fontWeight: 500, color: stage.color, margin: "0 0 8px" }}>{stage.label}</h2>
+        {stage.tip && <div style={{ fontSize: 13, fontStyle: "italic", color: stage.color, opacity: 0.9, padding: "10px 14px", background: `${stage.color}18`, borderRadius: 8 }}>Tip: {stage.tip}</div>}
+      </div>
+
+      <div style={{ background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 12, padding: 16, marginBottom: 14 }}>
+        <div style={{ fontWeight: 500, fontSize: 15, marginBottom: 12, color: "var(--color-text-primary)" }}>Steps to follow</div>
+        {stage.steps.map((step, i) => (
+          <div key={i} style={{ display: "flex", gap: 12, marginBottom: 10 }}>
+            <div style={{ minWidth: 26, height: 26, borderRadius: "50%", background: stage.color, color: "#fff", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 500, flexShrink: 0 }}>{i + 1}</div>
+            <div style={{ fontSize: 14, color: "var(--color-text-primary)", lineHeight: 1.6, paddingTop: 3 }}>{step}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ background: "var(--color-background-primary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 12, padding: 16, marginBottom: 16 }}>
+        <div style={{ fontWeight: 500, fontSize: 15, marginBottom: 12, color: "var(--color-text-primary)" }}>Checklist for this stage</div>
+        {stage.checklist.map((item, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "0.5px solid var(--color-border-tertiary)" }}>
+            <div style={{ width: 18, height: 18, borderRadius: 4, border: `1.5px solid ${stage.color}`, flexShrink: 0 }} />
+            <span style={{ fontSize: 14, color: "var(--color-text-primary)" }}>{item}</span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 10 }}>
+        {onPrev && <button onClick={onPrev} style={{ padding: "10px 20px", border: "0.5px solid var(--color-border-secondary)", borderRadius: 8, cursor: "pointer", background: "var(--color-background-primary)", fontSize: 14, color: "var(--color-text-primary)" }}>← Previous stage</button>}
+        {onNext && <button onClick={onNext} style={{ padding: "10px 20px", background: stage.color, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 500, fontSize: 14 }}>Next stage →</button>}
+      </div>
+    </div>
+  );
+}
